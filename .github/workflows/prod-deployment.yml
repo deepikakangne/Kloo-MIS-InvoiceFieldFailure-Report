@@ -19,31 +19,89 @@ jobs:
       with:
         python-version: "3.9"
     
-    - name: Set up AWS Cli
+    - name: Dynamically setting ENV variables
       run: |
-        aws configure set region eu-west-2
-        AWS_ACCESS_KEYID=$(aws secretsmanager get-secret-value --secret-id kloo_environment_variable_prod | jq --raw-output '.SecretString' | jq -r .\"KLOO_PROD_AWS_ACCESS_KEYID\")
-        echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEYID" >> .env
-        AWS_SECRET_ACCESSKEY=$(aws secretsmanager get-secret-value --secret-id kloo_environment_variable_prod | jq --raw-output '.SecretString' | jq -r .\"KLOO_PROD_AWS_SECRET_ACCESSKEY\")
-        echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESSKEY" >> .env
-        echo "AWS_DEFAULT_REGION=eu-west-2" >> .env 
+          if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+            echo "generic_varibles=kloo-dev-app-generic-variable" >> $GITHUB_ENV
+            echo "db_varibles=kloo-dev-rds-creds" >> $GITHUB_ENV
+            echo "aws_creds=kloo-dev-environment-variables" >> $GITHUB_ENV
+            echo "app_name={{ vars.DEV_APP_NAME }}" >> $GITHUB_ENV
+            echo "ecs_cluster={{ vars.DEV_CLUSTER_NAME }}" >> $GITHUB_ENV
+            echo "ecs_service={{ vars.DEV_ECS_SERVICE_NAME }}" >> $GITHUB_ENV
+            echo "ocr_secret=kloo-dev-ocr-secret" >> $GITHUB_ENV
+            echo "openapi_secret=kloo-dev-openapi-secret" >> $GITHUB_ENV
 
-    - name: DB Configure
-      run: |
-        echo "DB_CONNECTION=mysql" >> .env
-        echo "DB_HOST=mysql-kloo-prod.internal-service-kloo.com" >> .env
-        echo "DB_PORT=3306" >> .env
-        echo "DB_DATABASE=myrdssql01" >> .env
-        DB_USERNAME=`aws secretsmanager get-secret-value --secret-id kloo_environment_variable_prod | jq --raw-output '.SecretString' | jq -r ."Prodution_DB_Username"`
-        echo "DB_USERNAME=$DB_USERNAME" >> .env
-        DB_PASSWORD=`aws secretsmanager get-secret-value --secret-id kloo_environment_variable_prod | jq --raw-output '.SecretString' | jq -r ."Production_DB_Password"`
-        echo "DB_PASSWORD=$DB_PASSWORD" >> .env
+          elif [[ "${{ github.ref }}" == "refs/heads/stage"* ]]; then
+            echo "generic_varibles=kloo-stage-app-generic-variable" >> $GITHUB_ENV
+            echo "db_varibles=kloo-stage-rds-creds" >> $GITHUB_ENV
+            echo "aws_creds=kloo-dev-environment-variables" >> $GITHUB_ENV
+            echo "app_name={{ vars.STAGE_APP_NAME }}" >> $GITHUB_ENV
+            echo "ecs_cluster={{ vars.STAGE_CLUSTER_NAME }}" >> $GITHUB_ENV
+            echo "ecs_service={{ vars.STAGE_ECS_SERVICE_NAME }}" >> $GITHUB_ENV
+            echo "codat_yapily=kloo-stage-codat-yapily-secret" >> $GITHUB_ENV
+            echo "ocr_secret=kloo-dev-ocr-secret" >> $GITHUB_ENV
+            echo "openapi_secret=kloo-dev-openapi-secret" >> $GITHUB_ENV
 
-    - name: Push and deploy
+          elif [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+            echo "generic_varibles=kloo-prod-app-generic-variable" >> $GITHUB_ENV
+            echo "db_varibles=kloo-prod-rds-creds" >> $GITHUB_ENV
+            echo "aws_creds=kloo-prod-environment-variables" >> $GITHUB_ENV
+            echo "app_name={{ vars.PROD_APP_NAME }}" >> $GITHUB_ENV
+            echo "ecs_cluster={{ vars.PROD_CLUSTER_NAME }}" >> $GITHUB_ENV
+            echo "ecs_service={{ vars.PROD_ECS_SERVICE_NAME }}" >> $GITHUB_ENV
+            echo "codat_yapily=kloo-prod-codat-yapily-secret" >> $GITHUB_ENV
+
+          else 
+            echo "generic_varibles=kloo-dev-app-generic-variable" >> $GITHUB_ENV
+            echo "db_varibles=kloo-dev-rds-creds" >> $GITHUB_ENV
+            echo "aws_creds=kloo-dev-environment-variables" >> $GITHUB_ENV
+            echo "app_name={{ vars.DEV_APP_NAME }}" >> $GITHUB_ENV
+            echo "ecs_cluster={{ vars.DEV_CLUSTER_NAME }}" >> $GITHUB_ENV
+            echo "ecs_service={{ vars.DEV_ECS_SERVICE_NAME }}" >> $GITHUB_ENV
+            echo "codat_yapily=kloo-dev-codat-yapily-secret" >> $GITHUB_ENV
+          fi
+        
+    - name: Install AWS CLI
       run: |
-        aws ecr get-login-password --region eu-west-2  | docker login --username AWS --password-stdin ${{ vars.DOCKER_REGISTRY }}
-        docker build -t ${{ vars.DOCKER_REGISTRY}}/${{ vars.APP_NAME }}:latest .
-        echo ${{ vars.DOCKER_REGISTRY}}/${{ vars.APP_NAME }}
-        docker push ${{ vars.DOCKER_REGISTRY}}/${{ vars.APP_NAME }}:latest
-        # echo "Uploading the docker image to Lambda function $FUNC_NAME"
-        # aws lambda update-function-code --region eu-west-2 --function-name ${{ vars.PROD_FUNC_NAME }} --image-uri ${{ vars.DOCKER_REGISTRY}}/prod/${{ vars.APP_NAME }}:latest
+        if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+          aws configure set region ${{ vars.REGION }}
+          AWS_ACCESS_KEYID=$(aws secretsmanager get-secret-value --secret-id kloo-dev-environment-variables | jq --raw-output '.SecretString' | jq -r .\"AWS_ACCESS_KEYID\")
+          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEYID" >> .env
+          AWS_SECRET_ACCESSKEY=$(aws secretsmanager get-secret-value --secret-id kloo-dev-environment-variables | jq --raw-output '.SecretString' | jq -r .\"AWS_SECRET_ACCESSKEY\")
+          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESSKEY" >> .env
+          echo "AWS_DEFAULT_REGION=${{ vars.REGION }}" >> .env
+
+        elif [[ "${{ github.ref }}" == "refs/heads/stage"* ]]; then
+          aws configure set region ${{ vars.REGION }}
+          AWS_ACCESS_KEYID=$(aws secretsmanager get-secret-value --secret-id kloo-dev-environment-variables | jq --raw-output '.SecretString' | jq -r .\"AWS_ACCESS_KEYID\")
+          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEYID" >> .env
+          AWS_SECRET_ACCESSKEY=$(aws secretsmanager get-secret-value --secret-id kloo-dev-environment-variables | jq --raw-output '.SecretString' | jq -r .\"AWS_SECRET_ACCESSKEY\")
+          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESSKEY" >> .env
+          echo "AWS_DEFAULT_REGION=${{ vars.REGION }}" >> .env
+
+        elif [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
+          aws configure set region ${{ vars.REGION }}
+          AWS_ACCESS_KEYID=$(aws secretsmanager get-secret-value --secret-id kloo-dev-environment-variables | jq --raw-output '.SecretString' | jq -r .\"AWS_ACCESS_KEYID\")
+          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEYID" >> .env
+          AWS_SECRET_ACCESSKEY=$(aws secretsmanager get-secret-value --secret-id kloo-prod-environment-variables | jq --raw-output '.SecretString' | jq -r .\"AWS_SECRET_ACCESSKEY\")
+          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESSKEY" >> .env
+          echo "AWS_DEFAULT_REGION=${{ vars.REGION }}" >> .env
+
+        else
+          aws configure set region ${{ vars.REGION }}
+          AWS_ACCESS_KEYID=$(aws secretsmanager get-secret-value --secret-id kloo-dev-environment-variables | jq --raw-output '.SecretString' | jq -r .\"AWS_ACCESS_KEYID\")
+          echo "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEYID" >> .env
+          AWS_SECRET_ACCESSKEY=$(aws secretsmanager get-secret-value --secret-id kloo-dev-environment-variables | jq --raw-output '.SecretString' | jq -r .\"AWS_SECRET_ACCESSKEY\")
+          echo "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESSKEY" >> .env
+          echo "AWS_DEFAULT_REGION=${{ vars.REGION }}" >> .env
+        fi
+
+    - name: Build and push Docker image
+      run: |
+        if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+          sudo docker build -t ${{ vars.DOCKER_REGISTRY }}/${{ vars.DEV_APP_NAME }} .
+          sudo docker push ${{ vars.DOCKER_REGISTRY }}/${{ vars.DEV_APP_NAME }}:latest
+        elif [[ "${{ github.ref }}" == "refs/heads/stage"* ]]; then
+          sudo docker build -t ${{ vars.DOCKER_REGISTRY }}/${{ vars.STAGE_APP_NAME }} .
+          sudo docker push ${{ vars.DOCKER_REGISTRY }}/${{ vars.STAGE_APP_NAME }}:latest
+        fi

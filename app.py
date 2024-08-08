@@ -170,65 +170,21 @@ def generate_report_and_upload_to_s3():
         return {"statusCode": 500, "body": json.dumps(f"Database error: {str(err)}")}
 
     try:
-        query = """SELECT * FROM `all-transactions-report`;"""
-        erp_sync_query = """SELECT
-                        A.Organisation,
-                        A.Entity,
-                        A.Supplier,
-                        A.`Invoice Number`,
-                        A.Description,
-                        A.`Net Amount`,
-                        A.`Tax Amount`,
-                        A.`Total Amount`,
-                        B.`Approval date`,
-                        A.`Sync status`,
-                        ial.message AS Reason
-                    FROM (SELECT
-                            i.id,
-                            REPLACE(i.id, '-', '') AS invoice_id_without_hyphens,
-                            o.organization_name AS Organisation,
-                            oed.field_name AS Entity,
-                            s.name AS Supplier,
-                            i.invoice_number AS `Invoice Number`,
-                            i.description AS Description,
-                            i.net_amount AS `Net Amount`,
-                            i.tax_amount AS `Tax Amount`,
-                            i.amount AS `Total Amount`,
-                            CASE
-                                WHEN i.send_to_accounting_portal = 'pending' THEN 'Pending'
-                                WHEN i.send_to_accounting_portal = 'success' THEN 'Success'
-                                WHEN i.send_to_accounting_portal = 'failed' THEN 'Failed'
-                                ELSE i.send_to_accounting_portal
-                            END AS `Sync status`
-                        FROM invoices i
-                        JOIN suppliers s ON s.id = i.supplier_id
-                        
-                        JOIN organizations o ON o.id = i.organization_id
-                        JOIN organization_entity_details oed ON oed.id = i.entity_id AND oed.organization_id = i.organization_id 
-                        WHERE i.send_to_accounting_portal IN ('pending','success','failed') AND o.organization_name != 'Kloo QA' AND i.deleted_at IS NULL AND s.deleted_at IS NULL ) AS A
-                    LEFT JOIN (SELECT 
-                            ApprovedDate.`Approval date`, 
-                            ApprovedDate.event_ref_id
-                        FROM 
-                            (SELECT
-                                    wa.updated_at AS `Approval date`,
-                                    wa.event_ref_id,
-                                    ROW_NUMBER() OVER (PARTITION BY wa.event_ref_id ORDER BY wa.created_at DESC) AS row_num
-                                FROM
-                                    workflow_activities wa
-                                    INNER JOIN workflows w ON wa.workflow_id = w.id
-                                WHERE
-                                    w.workflow_type = 'account-payable-approval'
-                                    AND wa.flow_completed = 1
-                                    AND w.deleted_at IS NULL
-                                    AND wa.deleted_at IS NULL) AS ApprovedDate
-                        WHERE 
-                            row_num = 1) AS B
-                    ON A.id = B.event_ref_id
-                    LEFT JOIN invoice_attachment_logs ial ON ial.invoice_id = A.invoice_id_without_hyphens;"""
+        query = """SELECT * FROM `invoiceOcrFailedFields`;"""
+        erp_sync_query = """select `organizations`.`organization_name` AS 'Organisation',`invoice_ocr_logs`.created_at AS 'Date:Time', `organization_entity_details`.field_name AS 'Entity',`suppliers`.`name` AS 'Supplier',`invoices`.`invoice_number` AS 'Invoice Number',`invoice_ocr_logs`.invoice_failure_field AS 'Failed Field', `invoice_ocr_logs`.invoice_failure_reason AS 'Failure reason'
+                            from `invoices` 
+                            inner join `user_organization_details` on `invoices`.`user_org_id` = `user_organization_details`.`id` 
+                            left join `suppliers` on `invoices`.`supplier_id` = `suppliers`.`id` 
+                            inner join `users` on `user_organization_details`.`user_id` = `users`.`id` 
+                            inner join `organizations` on `organizations`.`id` = `invoices`.`organization_id` 
+                            LEFT JOIN `invoice_ocr_logs` ON `invoices`.id = `invoice_ocr_logs`.invoice_id
+                            LEFT JOIN `organization_entity_details` ON `invoices`.entity_id = `organization_entity_details`.id 
+                            where `invoices`.`deleted_at` is NULL 
+                            AND invoices.status = "draft" 
+                            AND `invoice_ocr_logs`.document_id IS NOT NULL AND `invoice_ocr_logs`.invoice_failure_field IS NOT NULL;"""
         current_date = datetime.now().strftime("%d-%m-%Y")
         chunksize = 200
-        file_path = f"/tmp/Kloo-Mis-Transaction_Report_{current_date}.xlsx"
+        file_path = f"/tmp/Kloo-Mis-InvoiceFieldFailure_Report_{current_date}.xlsx"
         erp_sync_file_path = (
             f"/tmp/Kloo-MIS-ERP-Invoice-Sync_Report_{current_date}.xlsx"
         )
@@ -239,7 +195,7 @@ def generate_report_and_upload_to_s3():
         logger.info("Writing ERP Invoice Sync report to Excel file...")
         write_to_excel(erp_sync_query, conn, chunksize, erp_sync_file_path)
 
-        s3_key = f"Kloo-Mis-Transaction_Report_{current_date}.xlsx"
+        s3_key = f"Kloo-Mis-InvoiceFieldFailure_Report_{current_date}.xlsx"
         logger.info(f"Uploading file to S3 bucket {S3_BUCKET_NAME} under {s3_key}...")
         upload_to_s3(file_path, S3_BUCKET_NAME, s3_key)
 
@@ -252,24 +208,9 @@ def generate_report_and_upload_to_s3():
         # Send the email with the attachment
         sender_email = "support@getkloo.com"
         recipient_emails = [
-            "deepika.kangne@blenheimchalcot.com",
-            "vaibhav.chotaliya@getkloo.com",
-            "shrinivas.krishnamurthy@getkloo.com",
-            "sven.huckstadt@blenheimchalcot.com",
-            "max.kingdon@getkloo.com",
-            "tim.baker@getkloo.com",
-            "emmanuel.oyemade@getkloo.com",
-            "sahil.shaikh@getkloo.com",
-            "shahrukh.shaikh@getkloo.com",
-            "samarjit.yadav@getkloo.com",
-            "atul.kale@getkloo.com",
-            "ai@getkloo.com",
-            "zeeshan.siddiquie@blenheimchalcot.com",
-            "romil.Shah@blenheimchalcot.com",
-            "kartike.kumar@blenheimchalcot.com",
-            "snehal.engley@getkloo.com",
+            "deepika.kangne@blenheimchalcot.com"
         ]
-        subject = f"Platform.Getkloo.Com: MIS Report Transactions Order {current_date}"
+        subject = f"Platform.Getkloo.Com: MIS Report Invoice Feild Failure Order {current_date}"
         body_text = "Please find your MIS report attached. Download File."
 
         logger.info("Sending email with attachment...")
@@ -282,13 +223,13 @@ def generate_report_and_upload_to_s3():
         )
 
         erp_sync_subject = (
-            f"Platform.Getkloo.Com: MIS ERP Invoice Sync Report {current_date}"
+            f"Platform.Getkloo.Com: MIS Invoice Field Failure Report_ {current_date}"
         )
         erp_sync_body_text = (
             "Please find your ERP Invoice Sync MIS report attached. Download File."
         )
 
-        logger.info("Sending ERP Invoice Sync Status email with attachment...")
+        logger.info("Sending Invoice Field Failure Report Status email with attachment...")
         send_email_via_sesv2(
             sender_email,
             recipient_emails,
